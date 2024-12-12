@@ -60,19 +60,23 @@ col1, col2 = st.columns([0.6, 0.4])
 # Text input and Answer Display (left column)
 with col1:
     st.header("Please ask any questions you have.")
-    st.session_state['question'] = st.text_input("Enter your question here:", st.session_state['question'])
+    #st.session_state['question'] = st.text_input("Enter your question here:", st.session_state['question'])
+    st.session_state['question'] = st.text_input("Enter your question here:")
     answer_placeholder = st.empty()
 
     if st.session_state['question'] and st.session_state['indexing_complete']:
         with st.spinner("Searching for relevant information..."):
             search = retriver()
             retrieved_docs = search.hybrid_search(query=st.session_state['question'])
-            context = " ".join(retrieved_docs)
+            context = " ".join([retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))])
 
         with st.spinner("Generating answer..."):
             llm = generate()
             st.session_state['answer'] = llm.llm_query(question=st.session_state['question'], context=context)
-
+            #st.session_state['question'] = None
+            st.session_state['answer'] += "\n\nReferences:\n\n"
+            for idx, doc in enumerate(retrieved_docs):
+                st.session_state['answer'] += f"[{idx+1}] {doc['filename']}: {doc['headings'][0]}, pp.{doc['page_no']}\n\n{doc['text']}\n\n"
         answer_placeholder.write(f"Answer:\n{st.session_state['answer']}")
     elif st.session_state['question'] and not st.session_state['indexing_complete']:
         st.warning("Please wait for the document to be indexed before asking questions.")
@@ -88,6 +92,7 @@ with col2:
         
         with open(f"temp/{pdf_file.name}", "wb") as f:
             f.write(pdf_file.getbuffer())
+            f.flush()
 
         with st.spinner("Indexing the document... This may take a moment."):
             collection_name = "collection_bm25"

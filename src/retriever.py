@@ -63,7 +63,10 @@ class retriver:
         )
         
         # Extract and return document texts from search results
-        documents = [point.payload['text'] for point in search_results.points]
+        documents = [{'text'    : point.payload['text'],
+                      'page_no' : point.payload['page_no'],
+                      'filename': point.payload['filename'],
+                      'headings': point.payload['headings']} for point in search_results.points]
         print(f"Total documents retrieved: {len(documents)}")
 
         return documents

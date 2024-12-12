@@ -1,0 +1,7 @@
+*.*
+src/*.*
+img/*.*
+!img/screenshot.png
+!src/*.py
+!README.md
+!requirement.txt

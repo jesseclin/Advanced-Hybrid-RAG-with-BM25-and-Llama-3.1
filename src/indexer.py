@@ -13,13 +13,37 @@ from sklearn.feature_extraction.text import CountVectorizer
 import numpy as np
 from fastembed import SparseTextEmbedding
 
+from typing import Iterator
+from langchain_core.document_loaders import BaseLoader
+from langchain_core.documents import Document as LCDocument
+
+from docling.document_converter import DocumentConverter
+from docling.datamodel.document import ConversionResult
+from docling_core.transforms.chunker import HierarchicalChunker
+
+class DoclingPDFLoader(BaseLoader):
+
+    def __init__(self, file_path: str | list[str]) -> None:
+        self._file_paths = file_path if isinstance(file_path, list) else [file_path]
+        self._converter = DocumentConverter()
+
+    #def lazy_load(self) -> Iterator[LCDocument]:
+    #    for source in self._file_paths:
+    #        dl_doc = self._converter.convert(source).document
+    #        text = dl_doc.export_to_markdown()
+    #        yield LCDocument(page_content=text)
+    def lazy_load(self) -> Iterator[ConversionResult]:
+        for source in self._file_paths:
+            dl_doc = self._converter.convert(source)
+            yield dl_doc
+
 class QdrantIndexing:
     def __init__(self, pdf_path):
         """
         Initialize the QdrantIndexing object.
         """
         self.pdf_path = pdf_path
-        self.qdrant_client = QdrantClient(url="http://localhost:6333")
+        self.qdrant_client = QdrantClient(url="http://localhost:6333",timeout=100)
         self.collection_name = "collection_bm25"
         self.document_text = ""
         self.bm25 = None
@@ -32,11 +56,14 @@ class QdrantIndexing:
         Read text from the PDF file.
         """
         try:
-            reader = PdfReader(self.pdf_path)
-            text = ""
-            for page in reader.pages:
-                text += page.extract_text()  # Extract text from each page
-            self.document_text = text
+            loader = DoclingPDFLoader(file_path=self.pdf_path)
+            self.document_text = loader.load()
+
+            #reader = PdfReader(self.pdf_path)
+            #text = ""
+            #for page in reader.pages:
+            #    text += page.extract_text()  # Extract text from each page
+            #self.document_text = text
             logging.info(f"Extracted text from PDF: {self.pdf_path}")
         except Exception as e:
             logging.error(f"Error reading PDF: {e}")
@@ -66,12 +93,12 @@ class QdrantIndexing:
             )
             logging.info(f"Created collection '{self.collection_name}' in Qdrant vector database.")
 
-    def chunk_text(self, text: str) -> List[str]:
+    def chunk_text(self, docs: LCDocument) -> List[str]:
         """
         Split the text into overlapping chunks.
         """
         splitter = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=100)
-        chunks = splitter.split_text(text)
+        chunks = splitter.split_documents(docs)
         return chunks
 
     def initialize_bm25(self):
@@ -100,16 +127,27 @@ class QdrantIndexing:
         embedding = model.encode(text)
         return embedding.tolist()
 
+
     def document_insertion(self):
         """
         Insert the document text along with its dense and sparse vectors into Qdrant.
         """
-        chunks = self.chunk_text(self.document_text)
+        #chunks = self.chunk_text(self.document_text)
+        docs = self.document_text
+        chunks = []
+        for idx, doc in enumerate(docs):
+            chunks += HierarchicalChunker().chunk(docs[idx].document)
+        #print(chunks)
         self.initialize_bm25()
         for chunk_index, chunk in enumerate(chunks):
-            dense_embedding = self.get_dense_embedding(chunk)
-            sparse_vector = self.create_sparse_vector(chunk)
+        #for chunk_index, chunk in enumerate(HierarchicalChunker().chunk(docs[0].document)):
+            dense_embedding = self.get_dense_embedding(chunk.text)
+            sparse_vector = self.create_sparse_vector(chunk.text)
             chunk_id = str(uuid.uuid4())
+            chunk_meta = chunk.meta.export_json_dict()
+            chunk_headings = ''
+            if 'headings' in chunk_meta.keys():
+                chunk_headings = chunk_meta['headings']
             self.qdrant_client.upsert(
                 collection_name=self.collection_name,
                 points=[
@@ -121,10 +159,17 @@ class QdrantIndexing:
                         },
                         "payload": {
                             'chunk_index': chunk_index,
-                            'text': chunk,
+                            'text': chunk.text,
+                            #'metadata': chunk.meta.export_json_dict(),
+                            'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
+                            'filename': chunk_meta['origin']['filename'],
+                            'headings': chunk_headings,
+                            #'captions': chunk.meta.captions,
                         }
                     }]
             )
+            if chunk_index<10:
+                print(chunk_meta.keys())
             logging.info(f"Inserted chunk {chunk_index + 1}/{len(chunks)} into Qdrant.")
 
 if __name__ == '__main__':

@@ -1,5 +1,8 @@
-from groq import Groq
-client = Groq(api_key='*******')
+from ollama import Client
+
+client = Client(
+  host='http://192.168.55.206:11435',
+)
 
 class generate:
     def __init__(self):
@@ -22,11 +25,11 @@ class generate:
         3. Answer should be in 200-300 words and make it as paras if required.
         Your explanation should be informative yet accessible, suitable for someone with a basic understanding of RAG. If the query asks for information not present in the context, please state that you don't have enough information to provide a complete answer, and only respond based on the given context.
         """
-        chat_title=client.chat.completions.create(messages=[{
+        chat_title=client.chat(messages=[{
               "role":"user",
               "content": self.prompt
-          }],model="llama-3.1-8b-instant")
-        return chat_title.choices[0].message.content
+          }],model="gemma2:27b-instruct-q8_0")
+        return chat_title.message.content
 
 if __name__ == '__main__':
     search = generate()
