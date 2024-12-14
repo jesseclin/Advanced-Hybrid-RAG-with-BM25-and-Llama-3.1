@@ -1,7 +1,7 @@
 from ollama import Client
 
 client = Client(
-  host='http://192.168.55.206:11435',
+  host='http://localhost:11434',
 )
 
 class generate:
@@ -28,7 +28,7 @@ class generate:
         chat_title=client.chat(messages=[{
               "role":"user",
               "content": self.prompt
-          }],model="gemma2:27b-instruct-q8_0")
+          }],model="aya-expanse:8b-q8_0")
         return chat_title.message.content
 
 if __name__ == '__main__':

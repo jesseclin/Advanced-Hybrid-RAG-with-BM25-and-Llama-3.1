@@ -2,6 +2,13 @@ from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 from fastembed import SparseTextEmbedding
 
+from ollama import Client
+
+oclient = Client(
+  host='http://localhost:11434',
+)
+
+
 class retriver:
     def __init__(self):
         self.sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
@@ -26,8 +33,9 @@ class retriver:
         """
         Get dense embedding for the given text using BERT-based model.
         """
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        embedding = model.encode(text).tolist()
+        #model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        #embedding = model.encode(text).tolist()
+        embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
         return embedding  # Convert to list
     
     def hybrid_search(self, query: str):

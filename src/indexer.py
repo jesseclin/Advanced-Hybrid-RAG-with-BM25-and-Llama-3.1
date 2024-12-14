@@ -21,6 +21,12 @@ from docling.document_converter import DocumentConverter
 from docling.datamodel.document import ConversionResult
 from docling_core.transforms.chunker import HierarchicalChunker
 
+from ollama import Client
+
+oclient = Client(
+  host='http://localhost:11434',
+)
+
 class DoclingPDFLoader(BaseLoader):
 
     def __init__(self, file_path: str | list[str]) -> None:
@@ -123,9 +129,10 @@ class QdrantIndexing:
         """
         Get dense embedding for the given text using BERT-based model.
         """
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        embedding = model.encode(text)
-        return embedding.tolist()
+        #model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        #embedding = model.encode(text).tolist()
+        embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
+        return embedding
 
 
     def document_insertion(self):
@@ -135,8 +142,8 @@ class QdrantIndexing:
         #chunks = self.chunk_text(self.document_text)
         docs = self.document_text
         chunks = []
-        for idx, doc in enumerate(docs):
-            chunks += HierarchicalChunker().chunk(docs[idx].document)
+        for _, doc in enumerate(docs):
+            chunks += HierarchicalChunker().chunk(doc.document)
         #print(chunks)
         self.initialize_bm25()
         for chunk_index, chunk in enumerate(chunks):
