@@ -21,6 +21,13 @@ from docling.document_converter import DocumentConverter
 from docling.datamodel.document import ConversionResult
 from docling_core.transforms.chunker import HierarchicalChunker
 
+from transformers import AutoTokenizer
+
+from docling.chunking import HybridChunker
+
+EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+MAX_TOKENS = 512
+
 from ollama import Client
 
 oclient = Client(
@@ -44,13 +51,13 @@ class DoclingPDFLoader(BaseLoader):
             yield dl_doc
 
 class QdrantIndexing:
-    def __init__(self, pdf_path):
+    def __init__(self, pdf_path, collection_name="collection_bm25"):
         """
         Initialize the QdrantIndexing object.
         """
         self.pdf_path = pdf_path
         self.qdrant_client = QdrantClient(url="http://localhost:6333",timeout=100)
-        self.collection_name = "collection_bm25"
+        self.collection_name = collection_name
         self.document_text = ""
         self.bm25 = None
         self.vectorizer = CountVectorizer(binary=True)
@@ -74,12 +81,12 @@ class QdrantIndexing:
         except Exception as e:
             logging.error(f"Error reading PDF: {e}")
 
-    def client_collection(self):
+    def client_collection(self, recreate=True):
         """
         Create a collection in Qdrant vector database.
         """
-        if self.qdrant_client.collection_exists("collection_bm25"):
-            self.qdrant_client.delete_collection("collection_bm25")
+        if self.qdrant_client.collection_exists(self.collection_name) and recreate==True:
+            self.qdrant_client.delete_collection(self.collection_name)
         if not self.qdrant_client.collection_exists(self.collection_name):
             self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
@@ -139,13 +146,24 @@ class QdrantIndexing:
         """
         Insert the document text along with its dense and sparse vectors into Qdrant.
         """
+        tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL_ID)
+
+        chunker = HybridChunker(
+            tokenizer=tokenizer,  # can also just pass model name instead of tokenizer instance
+            max_tokens=MAX_TOKENS,  # optional, by default derived from `tokenizer`
+            # merge_peers=True,  # optional, defaults to True
+        )
+
         #chunks = self.chunk_text(self.document_text)
         docs = self.document_text
         chunks = []
         for _, doc in enumerate(docs):
-            chunks += HierarchicalChunker().chunk(doc.document)
+            #chunks += HierarchicalChunker().chunk(doc.document)
+            chunks += chunker.chunk(dl_doc=doc.document)
         #print(chunks)
         self.initialize_bm25()
+        label_cnt = {}
+        filename = ""
         for chunk_index, chunk in enumerate(chunks):
         #for chunk_index, chunk in enumerate(HierarchicalChunker().chunk(docs[0].document)):
             dense_embedding = self.get_dense_embedding(chunk.text)
@@ -155,9 +173,25 @@ class QdrantIndexing:
             chunk_headings = ''
             if 'headings' in chunk_meta.keys():
                 chunk_headings = chunk_meta['headings']
-            self.qdrant_client.upsert(
-                collection_name=self.collection_name,
-                points=[
+            label = chunk_meta['doc_items'][0]['label']
+            if label in label_cnt.keys():
+                label_cnt[label] += 1
+            else:
+                label_cnt[label] = 0
+            #if label in ['page_header', 'page_footer', 'caption'] :
+            #if label in['paragraph']:
+            #    print(f"[{chunk_meta}]{chunk.text}")
+            #if label in ['text', 'caption', 'list_item', 'paragraph', 'footnote']:
+            #if label in ['text', 'caption'] and 'origin' in chunk_meta.keys() and chunk_headings not in ['References','REFERENCES']:
+            if 'origin' in chunk_meta.keys():
+                filename = chunk_meta['origin']['filename']
+            #else:
+            #    print(f"[{chunk_index}] {chunk.text}")
+            #    print(chunk_meta)
+            if label in ['text'] and chunk_headings not in ['References','REFERENCES']:
+                self.qdrant_client.upsert(
+                    collection_name=self.collection_name,
+                    points=[
                     {
                         "id": chunk_id,
                         "vector": {
@@ -169,15 +203,18 @@ class QdrantIndexing:
                             'text': chunk.text,
                             #'metadata': chunk.meta.export_json_dict(),
                             'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
-                            'filename': chunk_meta['origin']['filename'],
+                            'filename': filename,
                             'headings': chunk_headings,
                             #'captions': chunk.meta.captions,
                         }
                     }]
-            )
-            if chunk_index<10:
-                print(chunk_meta.keys())
+                )
+                #if chunk_index>100:
+                #    print(f"[{chunk_index}] {chunk.text}")
+                #    print(chunk_meta)
             logging.info(f"Inserted chunk {chunk_index + 1}/{len(chunks)} into Qdrant.")
+
+        print(label_cnt.keys())
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

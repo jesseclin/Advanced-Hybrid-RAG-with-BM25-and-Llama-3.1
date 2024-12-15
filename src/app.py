@@ -103,9 +103,9 @@ with col2:
             st.session_state['indexing_complete'] = True
         st.sidebar.success("Document indexed successfully!")
 
-    if st.session_state['pdf_uploaded']:
-        st.write(f"Displaying PDF: {st.session_state['pdf_file_name']}")
-        display_pdf(f"temp/{st.session_state['pdf_file_name']}")
+    #if st.session_state['pdf_uploaded']:
+    #    st.write(f"Displaying PDF: {st.session_state['pdf_file_name']}")
+    #    display_pdf(f"temp/{st.session_state['pdf_file_name']}")
 
 # Check if page refresh is needed
 if st.session_state['refresh_page']:
