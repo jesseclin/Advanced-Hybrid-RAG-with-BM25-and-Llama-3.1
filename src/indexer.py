@@ -26,7 +26,7 @@ from transformers import AutoTokenizer
 from docling.chunking import HybridChunker
 
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 
 from ollama import Client
 
@@ -164,6 +164,7 @@ class QdrantIndexing:
         self.initialize_bm25()
         label_cnt = {}
         filename = ""
+        eff_chunks = []
         for chunk_index, chunk in enumerate(chunks):
         #for chunk_index, chunk in enumerate(HierarchicalChunker().chunk(docs[0].document)):
             dense_embedding = self.get_dense_embedding(chunk.text)
@@ -189,37 +190,75 @@ class QdrantIndexing:
             #    print(f"[{chunk_index}] {chunk.text}")
             #    print(chunk_meta)
             if label in ['text'] and chunk_headings not in ['References','REFERENCES']:
-                self.qdrant_client.upsert(
-                    collection_name=self.collection_name,
-                    points=[
+                eff_chunks.append({'dense_embedding':dense_embedding, 
+                                   'sparse_vector': sparse_vector,
+                                   'chunk_id': chunk_id,
+                                   'text': chunk.text,
+                                   'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
+                                   'filename': filename,
+                                   'headings': chunk_headings,
+                                   })
+                
+        for chunk_index, chunk in enumerate(eff_chunks):
+            context = ""
+            start   = -1
+            end     = 1
+            current_heading = chunk['headings']
+            if chunk_index==0:
+                start = 0
+            elif chunk_index==len(eff_chunks)-1:
+                end   = 0
+
+            for i in range(start,end+1,1):
+                #print(f"1:{current_heading}")
+                #print(f"2:{eff_chunks[chunk_index+i]['headings']}")
+                if eff_chunks[chunk_index+i]['headings'] == current_heading:
+                    context += f"{eff_chunks[chunk_index+i]['text']}\n"
+            #print(context)        
+            self.qdrant_client.upsert(
+                collection_name=self.collection_name,
+                points=[
                     {
-                        "id": chunk_id,
+                        "id": chunk['chunk_id'],
                         "vector": {
-                            'dense': dense_embedding,
-                            'sparse': sparse_vector,
+                            'dense': chunk['dense_embedding'],
+                            'sparse': chunk['sparse_vector'],
                         },
                         "payload": {
                             'chunk_index': chunk_index,
-                            'text': chunk.text,
+                            'text': context,
                             #'metadata': chunk.meta.export_json_dict(),
-                            'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
-                            'filename': filename,
-                            'headings': chunk_headings,
+                            'page_no' : chunk['page_no'],
+                            'filename': chunk['filename'],
+                            'headings': chunk['headings'],
                             #'captions': chunk.meta.captions,
                         }
-                    }]
-                )
+                    }
+                ]
+            )
                 #if chunk_index>100:
                 #    print(f"[{chunk_index}] {chunk.text}")
                 #    print(chunk_meta)
-            logging.info(f"Inserted chunk {chunk_index + 1}/{len(chunks)} into Qdrant.")
+            logging.info(f"Inserted chunk {chunk_index + 1}/{len(eff_chunks)} into Qdrant.")
 
         print(label_cnt.keys())
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
     logging.basicConfig(level=logging.INFO)
-    pdf_file_path = "data/Module-1.pdf"
-    indexing = QdrantIndexing(pdf_path=pdf_file_path)
+    
+    parser.add_argument('file', help='Input PDF File')
+    parser.add_argument('-c', '--collection', help='Qdrant\'s collection name')
+    parser.add_argument('-r', '--recreate', action='store_true', help='Recrate Qdrant\'s collection')  
+    args = parser.parse_args() 
+
+    pdf_file_path = args.file
+    collection_name = args.collection if args.collection is not None else "collection_bm25"
+    recrate = args.recreate
+    print(f"[{recrate}]")
+    
+    indexing = QdrantIndexing(pdf_path=pdf_file_path, collection_name=collection_name)
     indexing.read_pdf()
-    indexing.client_collection()
+    indexing.client_collection(recreate=False)
     indexing.document_insertion()

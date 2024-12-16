@@ -28,12 +28,33 @@ class generate:
         chat_title=client.chat(messages=[{
               "role":"user",
               "content": self.prompt
-          }],model="aya-expanse:8b-q8_0")
+          }],model="gemma2:9b-instruct-q8_0")
         return chat_title.message.content
 
 if __name__ == '__main__':
+    from retriever import retriver
+    import argparse
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument('-c', '--collection', help='Qdrant\'s collection name')  
+    args = parser.parse_args() 
+    collection_name = args.collection if args.collection is not None else "collection_bm25"
+    print(collection_name)
+
+    search = retriver(collection_name=collection_name)
+    #query = "What's the \"antenna effect\" mentioned in IC layout? Please explain in Taiwan\'s traditional Chinese."
+    #query = "What's the difference between PLL and DLL? Please explain in Taiwan\'s traditional Chinese."
+    #query = "What's the meaning of MTBF? Please explain in Taiwan\'s traditional Chinese."
+    #query = "What's the meaning of setup time of a D-type flip-flop?"
+    query = "Is the setup time for a D-type flip-flop related to it's the hold-time ?"
+    #query = "How to measure the setup time for a D-type flip-flop?"
+    #query = "What's the meaning of hold time of a D-type flip-flop? Please explain in Taiwan\'s traditional Chinese."
+    #query = "What's the difference between the setup time and the hold time of a d-type flip-flop?"
+    retrieved_docs = search.hybrid_search(query)
+    #context = "\n\n".join([str({'headings': retrieved_docs[idx]['headings'],'text':retrieved_docs[idx]['text']}) for idx in range(len(retrieved_docs))])
+    context = "\n\n".join([retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))])
+    print(f"{context}\n--------------------\n")
     search = generate()
-    query = ""
-    context=" "
-    results = search.llm_query(query,context)
+    
+    results = search.llm_query(query, context)
     print(results)

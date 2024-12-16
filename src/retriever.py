@@ -10,10 +10,10 @@ oclient = Client(
 
 
 class retriver:
-    def __init__(self):
-        self.sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
+    def __init__(self, collection_name="collection_bm25"):
+        #self.sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
         self.qdrant_client = QdrantClient(url="http://localhost:6333")
-        self.collection_name = "collection_bm25"
+        self.collection_name = collection_name
         self.query = ""
 
     def create_sparse_vector(self, text):
@@ -67,7 +67,8 @@ class retriver:
                     limit=3
                 ),
             ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF)  # Rank Reciprocal Fusion
+            query=models.FusionQuery(fusion=models.Fusion.RRF),  # Rank Reciprocal Fusion
+            score_threshold=0.5
         )
         
         # Extract and return document texts from search results
@@ -81,8 +82,15 @@ class retriver:
 
 # Usage Example
 if __name__ == '__main__':
-    search = retriver()
-    query = "Can you explain the objective of sustainable development?"
+    import argparse
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument('-c', '--collection', help='Qdrant\'s collection name')  
+    args = parser.parse_args() 
+    collection_name = args.collection if args.collection is not None else "collection_bm25"
+
+    search = retriver(collection_name=collection_name)
+    query = "How LLM can help digital hardware design?"
     results = search.hybrid_search(query)
     for doc in results:
         print(doc)
