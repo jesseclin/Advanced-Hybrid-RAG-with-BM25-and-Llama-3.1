@@ -1,7 +1,7 @@
 from ollama import Client
 
 client = Client(
-  host='http://localhost:11434',
+  host='http://192.168.55.206:11435',
 )
 
 class generate:
@@ -28,7 +28,7 @@ class generate:
         chat_title=client.chat(messages=[{
               "role":"user",
               "content": self.prompt
-          }],model="gemma2:9b-instruct-q8_0")
+          }],model="gemma2:27b-instruct-q8_0")
         return chat_title.message.content
 
 if __name__ == '__main__':
@@ -42,11 +42,12 @@ if __name__ == '__main__':
     print(collection_name)
 
     search = retriver(collection_name=collection_name)
-    #query = "What's the \"antenna effect\" mentioned in IC layout? Please explain in Taiwan\'s traditional Chinese."
+    #query = "請問何謂 VLSI 設計中所提到的 \"antenna effect\"?"
     #query = "What's the difference between PLL and DLL? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the meaning of MTBF? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the meaning of setup time of a D-type flip-flop?"
-    query = "Is the setup time for a D-type flip-flop related to it's the hold-time ?"
+    query = "setup time of a D-type flip-flop"
+    #query = "Is the setup time for a D-type flip-flop related to it's the hold-time ?"
     #query = "How to measure the setup time for a D-type flip-flop?"
     #query = "What's the meaning of hold time of a D-type flip-flop? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the difference between the setup time and the hold time of a d-type flip-flop?"

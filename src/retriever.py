@@ -35,7 +35,8 @@ class retriver:
         """
         #model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
         #embedding = model.encode(text).tolist()
-        embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
+        #embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
+        embedding = oclient.embeddings(model="bge-m3:latest", prompt=text)["embedding"]
         return embedding  # Convert to list
     
     def hybrid_search(self, query: str):

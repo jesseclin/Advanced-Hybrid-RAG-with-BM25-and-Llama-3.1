@@ -1,21 +1,17 @@
 import torch
 from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient, models
-from PyPDF2 import PdfReader
 import logging
 from transformers import AutoTokenizer, AutoModel
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 from typing import List
 import uuid
-from rank_bm25 import BM25Okapi
 from sklearn.feature_extraction.text import CountVectorizer
 import numpy as np
 from fastembed import SparseTextEmbedding
 
 from typing import Iterator
 from langchain_core.document_loaders import BaseLoader
-from langchain_core.documents import Document as LCDocument
 
 from docling.document_converter import DocumentConverter
 from docling.datamodel.document import ConversionResult
@@ -26,7 +22,7 @@ from transformers import AutoTokenizer
 from docling.chunking import HybridChunker
 
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_TOKENS = 256
+MAX_TOKENS = 64
 
 from ollama import Client
 
@@ -87,17 +83,18 @@ class QdrantIndexing:
         """
         if self.qdrant_client.collection_exists(self.collection_name) and recreate==True:
             self.qdrant_client.delete_collection(self.collection_name)
+            print("[INFO] Delete collection{self.collection_name}")
         if not self.qdrant_client.collection_exists(self.collection_name):
             self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config={
-                     'dense': models.VectorParams(
-                         size=384,
+                     'text-dense': models.VectorParams(
+                         size=1024,#384,
                          distance=models.Distance.COSINE,
                      )
                 },
                 sparse_vectors_config={
-                    "sparse": models.SparseVectorParams(
+                    "text-sparse": models.SparseVectorParams(
                               index=models.SparseIndexParams(
                                 on_disk=False,              
                             ),
@@ -105,14 +102,6 @@ class QdrantIndexing:
                     }
             )
             logging.info(f"Created collection '{self.collection_name}' in Qdrant vector database.")
-
-    def chunk_text(self, docs: LCDocument) -> List[str]:
-        """
-        Split the text into overlapping chunks.
-        """
-        splitter = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=100)
-        chunks = splitter.split_documents(docs)
-        return chunks
 
     def initialize_bm25(self):
         """
@@ -138,7 +127,8 @@ class QdrantIndexing:
         """
         #model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
         #embedding = model.encode(text).tolist()
-        embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
+        #embedding = oclient.embeddings(model="all-minilm:33m", prompt=text)["embedding"]
+        embedding = oclient.embeddings(model="bge-m3:latest", prompt=text)["embedding"]
         return embedding
 
 
@@ -201,19 +191,40 @@ class QdrantIndexing:
                 
         for chunk_index, chunk in enumerate(eff_chunks):
             context = ""
-            start   = -1
+            start   = 0
             end     = 1
             current_heading = chunk['headings']
-            if chunk_index==0:
-                start = 0
-            elif chunk_index==len(eff_chunks)-1:
-                end   = 0
+            i=1
+            while True:
+                if chunk_index-i >=0:
+                    if eff_chunks[chunk_index-i]['headings'] == current_heading:
+                        start -= 1
+                        i += 1
+                    else:
+                        break
+                else:
+                    break
+            i=1
+            while True:
+                if chunk_index+i < len(eff_chunks):
+                    if eff_chunks[chunk_index+i]['headings'] == current_heading:
+                        end += 1
+                        i += 1
+                    else:
+                        break
+                else:
+                    break    
+            #if chunk_index==0:
+            #    start = 0
+            #elif chunk_index==len(eff_chunks)-1:
+            #    end   = 0
+            print(f"[{chunk_index}] {start}->{end}")
 
-            for i in range(start,end+1,1):
+            for i in range(start, end, 1):
                 #print(f"1:{current_heading}")
                 #print(f"2:{eff_chunks[chunk_index+i]['headings']}")
-                if eff_chunks[chunk_index+i]['headings'] == current_heading:
-                    context += f"{eff_chunks[chunk_index+i]['text']}\n"
+                #if eff_chunks[chunk_index+i]['headings'] == current_heading:
+                context += f"{eff_chunks[chunk_index+i]['text']}\n"
             #print(context)        
             self.qdrant_client.upsert(
                 collection_name=self.collection_name,
@@ -221,8 +232,8 @@ class QdrantIndexing:
                     {
                         "id": chunk['chunk_id'],
                         "vector": {
-                            'dense': chunk['dense_embedding'],
-                            'sparse': chunk['sparse_vector'],
+                            'text-dense': chunk['dense_embedding'],
+                            'text-sparse': chunk['sparse_vector'],
                         },
                         "payload": {
                             'chunk_index': chunk_index,
@@ -260,5 +271,5 @@ if __name__ == '__main__':
     
     indexing = QdrantIndexing(pdf_path=pdf_file_path, collection_name=collection_name)
     indexing.read_pdf()
-    indexing.client_collection(recreate=False)
+    indexing.client_collection(recreate=recrate)
     indexing.document_insertion()
