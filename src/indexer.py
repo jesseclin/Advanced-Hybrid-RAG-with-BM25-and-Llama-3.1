@@ -22,7 +22,7 @@ from transformers import AutoTokenizer
 from docling.chunking import HybridChunker
 
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_TOKENS = 64
+MAX_TOKENS = 256
 
 from ollama import Client
 
@@ -224,7 +224,7 @@ class QdrantIndexing:
                 #print(f"1:{current_heading}")
                 #print(f"2:{eff_chunks[chunk_index+i]['headings']}")
                 #if eff_chunks[chunk_index+i]['headings'] == current_heading:
-                context += f"{eff_chunks[chunk_index+i]['text']}\n"
+                context += f"[{i}]{eff_chunks[chunk_index+i]['text']}\n\n"
             #print(context)        
             self.qdrant_client.upsert(
                 collection_name=self.collection_name,

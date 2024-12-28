@@ -46,11 +46,12 @@ if __name__ == '__main__':
     #query = "What's the difference between PLL and DLL? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the meaning of MTBF? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the meaning of setup time of a D-type flip-flop?"
-    query = "setup time of a D-type flip-flop"
+    #query = "setup time of a D-type flip-flop"
     #query = "Is the setup time for a D-type flip-flop related to it's the hold-time ?"
     #query = "How to measure the setup time for a D-type flip-flop?"
     #query = "What's the meaning of hold time of a D-type flip-flop? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the difference between the setup time and the hold time of a d-type flip-flop?"
+    query = "FIGURE 11.10"
     retrieved_docs = search.hybrid_search(query)
     #context = "\n\n".join([str({'headings': retrieved_docs[idx]['headings'],'text':retrieved_docs[idx]['text']}) for idx in range(len(retrieved_docs))])
     context = "\n\n".join([retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))])

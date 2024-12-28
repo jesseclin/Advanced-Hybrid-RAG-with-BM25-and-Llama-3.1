@@ -59,12 +59,12 @@ class retriver:
             prefetch=[
                 models.Prefetch(
                     query=sparse_query,  # Sparse vector query
-                    using="sparse",
+                    using="text-sparse",
                     limit=3
                 ),
                 models.Prefetch(
                     query=dense_query,  # Dense vector query
-                    using="dense",
+                    using="text-dense",
                     limit=3
                 ),
             ],
@@ -91,7 +91,8 @@ if __name__ == '__main__':
     collection_name = args.collection if args.collection is not None else "collection_bm25"
 
     search = retriver(collection_name=collection_name)
-    query = "How LLM can help digital hardware design?"
+    #query = "How LLM can help digital hardware design?"
+    query = "FIGURE 11.1"
     results = search.hybrid_search(query)
     for doc in results:
         print(doc)
