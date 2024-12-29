@@ -1,7 +1,9 @@
 from ollama import Client
+from rag_evaluator import evaluate_rag_relevance  # Assuming previous code is saved as evaluate_rag.py
+from rerankers import Reranker
 
 client = Client(
-  host='http://192.168.55.206:11435',
+  host='http://localhost:11434',
 )
 
 class generate:
@@ -28,7 +30,7 @@ class generate:
         chat_title=client.chat(messages=[{
               "role":"user",
               "content": self.prompt
-          }],model="gemma2:27b-instruct-q8_0")
+          }],model="llama3.2:3b-instruct-q8_0")
         return chat_title.message.content
 
 if __name__ == '__main__':
@@ -51,12 +53,40 @@ if __name__ == '__main__':
     #query = "How to measure the setup time for a D-type flip-flop?"
     #query = "What's the meaning of hold time of a D-type flip-flop? Please explain in Taiwan\'s traditional Chinese."
     #query = "What's the difference between the setup time and the hold time of a d-type flip-flop?"
-    query = "FIGURE 11.10"
+    #query = "FIGURE 1.4 Transistors in Intel microprocessors [Intel10]"
+    query = "FIGURE 1.24 Inefficient discrete gate implementation of AOI22 with transistor counts indicated"
+    #query = "FIGURE 1.11 Inverter schematic (a) and symbol (b) Y = A"
     retrieved_docs = search.hybrid_search(query)
+    retrievals = [retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))]
+    scores = evaluate_rag_relevance(query, retrievals)
     #context = "\n\n".join([str({'headings': retrieved_docs[idx]['headings'],'text':retrieved_docs[idx]['text']}) for idx in range(len(retrieved_docs))])
-    context = "\n\n".join([retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))])
-    print(f"{context}\n--------------------\n")
-    search = generate()
+    #context = "\n\n".join([retrieved_docs[idx]['text'] for idx in range(len(retrieved_docs))])
+    #print(scores)
+    #print(f"{context}\n--------------------\n")
+    ranker = Reranker('flashrank')
+    results = ranker.rank(query=query, docs=retrievals)
+    print(results.top_k(1)[0].text)
+
+    score_max = 0
+    context = ""
+    count = 0
+    for idx, content in enumerate(retrievals):
+        print(f"Score: {scores[idx]}")
+        print("====================\n")
+        print(f"Content: {content}")
+        print("--------------------")
+        print("--------------------\n")
+        if score_max < scores[idx]:
+            context = content
+            count = 1
+            score_max = scores[idx]
+        else:
+            context += f" {content}"
+            count += 1
     
+    
+    search = generate()
+    print(count)
+    context = results.top_k(1)[0].text
     results = search.llm_query(query, context)
     print(results)

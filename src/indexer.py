@@ -1,3 +1,5 @@
+import re
+import sys
 import torch
 from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient, models
@@ -85,11 +87,12 @@ class QdrantIndexing:
             self.qdrant_client.delete_collection(self.collection_name)
             print("[INFO] Delete collection{self.collection_name}")
         if not self.qdrant_client.collection_exists(self.collection_name):
+            emb_sz = len(self.get_dense_embedding("test"))
             self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config={
                      'text-dense': models.VectorParams(
-                         size=1024,#384,
+                         size=emb_sz,#1024,#384,
                          distance=models.Distance.COSINE,
                      )
                 },
@@ -131,6 +134,60 @@ class QdrantIndexing:
         embedding = oclient.embeddings(model="bge-m3:latest", prompt=text)["embedding"]
         return embedding
 
+    def strip_figure_captions(self, text):
+        """
+        Strips out figure captions and their surrounding empty lines from text that match the pattern:
+        FIGURE X.X followed by text starting with a capital letter or parenthesis
+    
+        Args:
+            text (str): Input text containing figure captions
+        
+        Returns:
+            str: Text with figure captions and surrounding empty lines removed
+        """
+        patterns = [r'^\s*FIGURE\s+\d+\.\d+\s+[A-Z(].*$',   # Caption
+                    r'^\s*\d{1,4}\s*$',                     # Page number
+                    r'^\s*Chapter\s+\d+\s+[A-Z].*$',        # Chapter 
+                    r'^\s*[\d\.]+\s+[A-Z].*$',              # Section
+                    ]
+        lines = text.split('\n')
+    
+        # Remove figure captions and consolidate empty lines
+        filtered_lines = []
+        skip_next_empty = False
+    
+        for i, line in enumerate(lines):
+            # Check if current line is a figure caption
+            for pattern in patterns:
+                is_figure = bool(re.match(pattern, line))
+                if is_figure:
+                    break
+        
+            # Check if current line is empty
+            is_empty = not line.strip()
+        
+            # Skip figure captions and manage empty lines
+            if is_figure:
+                skip_next_empty = True
+                continue
+        
+            # Skip empty line after figure caption
+            if is_empty and skip_next_empty:
+                skip_next_empty = False
+                continue
+            
+            filtered_lines.append(line)
+    
+        # Remove consecutive empty lines
+        result = []
+        prev_empty = False
+        for line in filtered_lines:
+            is_empty = not line.strip()
+            if not (is_empty and prev_empty):
+                result.append(line)
+            prev_empty = is_empty
+            
+        return '\n'.join(result)
 
     def document_insertion(self):
         """
@@ -157,8 +214,7 @@ class QdrantIndexing:
         eff_chunks = []
         for chunk_index, chunk in enumerate(chunks):
         #for chunk_index, chunk in enumerate(HierarchicalChunker().chunk(docs[0].document)):
-            dense_embedding = self.get_dense_embedding(chunk.text)
-            sparse_vector = self.create_sparse_vector(chunk.text)
+            
             chunk_id = str(uuid.uuid4())
             chunk_meta = chunk.meta.export_json_dict()
             chunk_headings = ''
@@ -169,6 +225,19 @@ class QdrantIndexing:
                 label_cnt[label] += 1
             else:
                 label_cnt[label] = 0
+
+            if label in ['text'] and chunk_headings not in ['References','REFERENCES']:
+                fixed_text = self.strip_figure_captions(chunk.text)
+            else:
+                fixed_text = chunk.text
+            dense_embedding = self.get_dense_embedding(fixed_text)
+            sparse_vector = self.create_sparse_vector(fixed_text)
+            if len(dense_embedding)!=1024:
+                print(label)
+                print(chunk.text)
+                print(fixed_text)
+                #sys.exit()
+                continue
             #if label in ['page_header', 'page_footer', 'caption'] :
             #if label in['paragraph']:
             #    print(f"[{chunk_meta}]{chunk.text}")
@@ -183,7 +252,7 @@ class QdrantIndexing:
                 eff_chunks.append({'dense_embedding':dense_embedding, 
                                    'sparse_vector': sparse_vector,
                                    'chunk_id': chunk_id,
-                                   'text': chunk.text,
+                                   'text': fixed_text,
                                    'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
                                    'filename': filename,
                                    'headings': chunk_headings,

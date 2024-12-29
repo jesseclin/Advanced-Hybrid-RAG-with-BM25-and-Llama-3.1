@@ -3,7 +3,8 @@ import logging
 from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 import argparse
-   
+import re
+from html import unescape   
 
 @dataclass
 class Block:
@@ -14,6 +15,42 @@ class Block:
     children: Optional[List['Block']]
     section_hierarchy: Optional[Dict[str, str]] = None
     images: Optional[Dict] = None
+
+
+
+def html_to_text(html_string):
+    """
+    Convert HTML string to plain text by removing HTML tags and decoding HTML entities.
+    
+    Args:
+        html_string (str): String containing HTML markup
+        
+    Returns:
+        str: Plain text string with HTML tags removed and entities decoded
+        
+    Example:
+        >>> html_to_text('<p>Hello <b>World</b> &amp; everyone!</p>')
+        'Hello World & everyone!'
+    """
+    # Remove style and script elements with their content
+    no_scripts = re.sub(r'<(style|script)[^>]*>.*?</\1>', '', html_string, flags=re.DOTALL)
+    
+    # Replace <br>, <div>, <p> tags with newlines
+    text = re.sub(r'<br[^>]*>', '\n', no_scripts)
+    text = re.sub(r'</?(div|p)[^>]*>', '\n', text)
+    
+    # Remove all remaining HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Decode HTML entities (like &amp;, &quot;, etc.)
+    text = unescape(text)
+    
+    # Fix multiple newlines and whitespace
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    
+    # Strip leading/trailing whitespace
+    return text.strip()
 
 def parse_block(data: Dict) -> Block:
     """Parse a JSON block into a Block object."""
@@ -31,6 +68,7 @@ def process_document(json_data: Dict) -> Block:
     """Process the entire document starting from root."""
     return [parse_block(child) for child in json_data['children']] if json_data['children'] else None
 
+
 def analyze_block(blocks: Block|List[Block], depth: int = 0):
     """Analyze and print information about a block and its children."""
     if isinstance(blocks, Block):
@@ -38,14 +76,15 @@ def analyze_block(blocks: Block|List[Block], depth: int = 0):
         
     for block in blocks:
         indent = "  " * depth
-        #if block.block_type == 'Caption':
+        if block.block_type == 'Caption':
         #if block.block_type == 'Document':
         #if block.block_type == 'Table':
         #if block.block_type == 'SectionHeader':
-        if block.block_type == 'ListItem':
+        #if block.block_type == 'ListItem':
             #print(f"{indent}Block ID: {block.id}")
             #print(f"{indent}Type: {block.block_type}")
-            print(f"{indent}HTML Content: {block.html}")  # Truncate long HTML
+            text = html_to_text(block.html)
+            print(f"{indent}Content: {text}")  # Truncate long HTML
             #print(f"{indent}Polygon Coordinates: {block.polygon}")
     
         #if block.section_hierarchy:
