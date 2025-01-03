@@ -6,6 +6,8 @@ import argparse
 import re
 from html import unescape   
 
+dict_figure = {}
+
 @dataclass
 class Block:
     id: str
@@ -100,16 +102,53 @@ def separate_caption(caption_str: str) -> tuple[str, str]:
     else:
         # If no match found, return empty label and full string as description
         return ('', caption_str.strip())
+
+def fine_pattern(pattern, context) -> tuple[bool, list[str]]:
+    """
+    Search \"context\" to see if the specified \"pattern\" (a f-string in regular expression) exists.
     
+    Args:
+        pattern  (str): A string representing a Python regular expression pattern.
+        context  (str): The text within which we want to search for the regular expression pattern.
+        
+    Returns:
+        bool: True if the specified pattern exists in the provided context, False otherwise.
+    
+    Example:
+        >>> fine_pattern(r'hello', 'hello world')
+        True
+        >>> fine_pattern(r'world', 'hello world')
+        True
+        >>> fine_pattern(r'planet', 'hello world')
+        False
+    """
+    matches = re.findall(pattern, context)
+    match_list = []
+    for match in matches:
+        match_list.append(match)
+    return bool(len(matches)>0), match_list
+
 def analyze_block(blocks: Block|List[Block], depth: int = 0):
     """Analyze and print information about a block and its children."""
     if isinstance(blocks, Block):
         blocks = [blocks]
-        
+
+    patterns = [
+        ['FIGURE',  r'Figure\s+([A-F\d][\d]*\.[\d]+)[\s\.\,\:]'],
+        ['FIGURE',  r'Figure\s+([A-F\d][\d]*\.[\d]+\(+\s*[a-z]+\s*\)+)[\s\.\,\:]'],
+        #['TABLE',   r'Table\s+([A-F\d][\d]*\.[\d]+)[\s\.\,]'],
+        ['TABLE',   r'Table\s+([A-F\d][\d]*\.[\d]+)[\s\.\,\:]'],
+        ['TABLE',   r'Table\s+([A-F\d][\d]*\.[\d]+\(+\s*[a-z]+\s*\)+)[\s\.\,\:]'],
+        ['Example', r'Example\s+([A-F\d][\d]*\.[\d]+)[\s\.\,\:]'],
+        ['Example', r'Example\s+([A-F\d][\d]*\.[\d]+\(+\s*[a-z]+\s*\)+)[\s\.\,\:]'],
+    ]
+
+    prev_text = ""
     for block in blocks:
         indent = "  " * depth
-        if block.block_type == 'Caption':
+        #if block.block_type == 'Caption':
         #if block.block_type == 'Document':
+        if block.block_type in ['Text', 'ListItem', 'TextInlineMath']:
         #if block.block_type == 'Table':
         #if block.block_type == 'SectionHeader':
         #if block.block_type == 'ListItem':
@@ -117,10 +156,31 @@ def analyze_block(blocks: Block|List[Block], depth: int = 0):
             #print(f"{indent}Type: {block.block_type}")
             text = html_to_text(block.html)
             #print(f"{indent}Content: {text}")  # Truncate long HTML
-            label, description = separate_caption(text)
-            print(f"{label}, {description}")
-            #print(f"{indent}Polygon Coordinates: {block.polygon}")
-    
+            #label, description = separate_caption(text)
+            #print(f"{label}, {description}")
+            for pattern in patterns:
+                found, items = fine_pattern(pattern[1], text)
+                if found:
+                    #print(items, text)
+                    for item in items:
+                        item = re.sub(r'\s+','',item)
+                        item = re.sub(r'\(\s*[a-z]\s*\)','',item)
+                        if item in dict_figure.keys():
+                            if block.block_type in ['ListItem']:
+                                dict_figure[f'{pattern[0]} {item}'].append(prev_text + "\n" + text)
+                                prev_text = prev_text + "\n" + text
+                            else:
+                                dict_figure[f'{pattern[0]} {item}'].append(text)
+                                prev_text = ""
+                        else:
+                            if block.block_type in ['ListItem']:
+                                dict_figure[f'{pattern[0]} {item}'] = [prev_text + "\n" + text]
+                                prev_text = prev_text + "\n" + text
+                            else:
+                                dict_figure[f'{pattern[0]} {item}'] = [text]
+                                prev_text = ""
+            
+            
         #if block.section_hierarchy:
         #    print(f"{indent}Section Hierarchy: {block.section_hierarchy}")
     
@@ -158,13 +218,15 @@ def main():
     parser = argparse.ArgumentParser()
     logging.basicConfig(level=logging.INFO)
     
-    parser.add_argument('file', help='Input JSON File') 
+    parser.add_argument('-i', '--input',  help='Input JSON File') 
+    parser.add_argument('-o', '--output', help='Input JSON File') 
     args = parser.parse_args() 
 
-    json_file_path = args.file
-    print(json_file_path)
+    json_file_path_i = args.input if args.input is not None else "input.json"
+    json_file_path_o = args.output if args.output is not None else "input.json"
+    print(json_file_path_i)
     # Parse JSON string into Python dictionary
-    with open(json_file_path, encoding='utf-8') as file:
+    with open(json_file_path_i, encoding='utf-8', mode='r') as file:
         data = json.load(file)
     
     # Process the document
@@ -184,6 +246,12 @@ def main():
     #    first_child = document[0].children[0]
     #    print(f"First Child ID: {first_child.id}")
     #    print(f"First Child Section Hierarchy: {first_child.section_hierarchy}")
+
+    for key in sorted(dict_figure.keys()):
+        print(key, dict_figure[key])
+
+    with open(json_file_path_o, encoding='utf-8', mode='w') as file:
+        json.dump(dict_figure, file)
 
 if __name__ == "__main__":
     main()

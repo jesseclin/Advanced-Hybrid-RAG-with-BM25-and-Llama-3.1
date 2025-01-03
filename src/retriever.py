@@ -60,12 +60,12 @@ class retriver:
                 models.Prefetch(
                     query=sparse_query,  # Sparse vector query
                     using="text-sparse",
-                    limit=3
+                    limit=5
                 ),
                 models.Prefetch(
                     query=dense_query,  # Dense vector query
                     using="text-dense",
-                    limit=3
+                    limit=5
                 ),
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),  # Rank Reciprocal Fusion
@@ -77,7 +77,7 @@ class retriver:
                       'page_no' : point.payload['page_no'],
                       'filename': point.payload['filename'],
                       'headings': point.payload['headings']} for point in search_results.points]
-        print(f"Total documents retrieved: {len(documents)}")
+        #print(f"Total documents retrieved: {len(documents)}")
 
         return documents
 

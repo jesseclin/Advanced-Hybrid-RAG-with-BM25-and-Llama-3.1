@@ -15,16 +15,19 @@ from fastembed import SparseTextEmbedding
 from typing import Iterator
 from langchain_core.document_loaders import BaseLoader
 
-from docling.document_converter import DocumentConverter
+from docling.document_converter import DocumentConverter 
 from docling.datamodel.document import ConversionResult
 from docling_core.transforms.chunker import HierarchicalChunker
-
+from docling_core.types.doc import DoclingDocument
 from transformers import AutoTokenizer
 
 from docling.chunking import HybridChunker
+from pathlib import Path
+import json
+import os
 
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_TOKENS = 256
+MAX_TOKENS = None
 
 from ollama import Client
 
@@ -67,8 +70,21 @@ class QdrantIndexing:
         Read text from the PDF file.
         """
         try:
-            loader = DoclingPDFLoader(file_path=self.pdf_path)
-            self.document_text = loader.load()
+            if isinstance(self.pdf_path, str):
+                if re.match(r'.*\.json', self.pdf_path):
+                    with Path(self.pdf_path).open("r", encoding='utf-8') as fp:
+                        doc_dict = json.loads(fp.read())
+                        self.document_text = DoclingDocument.model_validate(doc_dict)
+                        #print(self.document_text) 
+                else:
+                    loader = DoclingPDFLoader(file_path=self.pdf_path)
+                    self.document_text = loader.load()
+                    with Path(os.path.splitext(self.pdf_path)[0]+'_docling.json').open("w", encoding='utf-8') as fp:
+                        #print(self.document_text[0].document.export_to_dict())
+                        fp.write(json.dumps(self.document_text[0].document.export_to_dict()))
+            else:
+                loader = DoclingPDFLoader(file_path=self.pdf_path)
+                self.document_text = loader.load()
 
             #reader = PdfReader(self.pdf_path)
             #text = ""
@@ -145,10 +161,11 @@ class QdrantIndexing:
         Returns:
             str: Text with figure captions and surrounding empty lines removed
         """
-        patterns = [r'^\s*FIGURE\s+\d+\.\d+\s+[A-Z(].*$',   # Caption
+        patterns = [r'^\s*FIGURE\s+[A\d][\d]*\.\d+\s*[0-9A-Z(]{0,1}.*$',   # FIGURE
+                    r'^\s*TABLE\s+[A\d][\d]*\.\d+\s*[0-9A-Z(]{0,1}.*$',   # TABLE
                     r'^\s*\d{1,4}\s*$',                     # Page number
                     r'^\s*Chapter\s+\d+\s+[A-Z].*$',        # Chapter 
-                    r'^\s*[\d\.]+\s+[A-Z].*$',              # Section
+                    #r'^\s*[\d\.]+\s+[A-Z].*$',              # Section
                     ]
         lines = text.split('\n')
     
@@ -189,7 +206,7 @@ class QdrantIndexing:
             
         return '\n'.join(result)
 
-    def document_insertion(self):
+    def document_insertion(self, page_start=0, page_end=((1<<31)-1), max_tokens=MAX_TOKENS):
         """
         Insert the document text along with its dense and sparse vectors into Qdrant.
         """
@@ -197,16 +214,23 @@ class QdrantIndexing:
 
         chunker = HybridChunker(
             tokenizer=tokenizer,  # can also just pass model name instead of tokenizer instance
-            max_tokens=MAX_TOKENS,  # optional, by default derived from `tokenizer`
+            max_tokens=max_tokens,  # optional, by default derived from `tokenizer`
             # merge_peers=True,  # optional, defaults to True
         )
 
         #chunks = self.chunk_text(self.document_text)
         docs = self.document_text
         chunks = []
-        for _, doc in enumerate(docs):
-            #chunks += HierarchicalChunker().chunk(doc.document)
-            chunks += chunker.chunk(dl_doc=doc.document)
+        if isinstance(docs, DoclingDocument):
+            chunks += chunker.chunk(dl_doc=docs)
+        else:
+            for _, doc in enumerate(docs):
+                #chunks += HierarchicalChunker().chunk(doc.document)
+                #if isinstance(doc, tuple):
+                #    print(doc[0])
+                #    print(doc[1])
+                #    doc = doc[1]
+                chunks += chunker.chunk(dl_doc=doc.document)
         #print(chunks)
         self.initialize_bm25()
         label_cnt = {}
@@ -226,8 +250,13 @@ class QdrantIndexing:
             else:
                 label_cnt[label] = 0
 
-            if label in ['text'] and chunk_headings not in ['References','REFERENCES']:
+            #print(f"[{label}] []")
+            if label in ['text','caption'] and chunk_headings not in ['References','REFERENCES']:
                 fixed_text = self.strip_figure_captions(chunk.text)
+                #fixed_text = re.sub(r'\bFIGURE\s+\d{1,2}\.\d{1,2}\b', '', chunk.text)
+                #if fixed_text != chunk.text:
+                #    print(chunk.text)
+                #    print(fixed_text)
             else:
                 fixed_text = chunk.text
             dense_embedding = self.get_dense_embedding(fixed_text)
@@ -248,12 +277,14 @@ class QdrantIndexing:
             #else:
             #    print(f"[{chunk_index}] {chunk.text}")
             #    print(chunk_meta)
-            if label in ['text'] and chunk_headings not in ['References','REFERENCES']:
+            page_no = int(chunk_meta['doc_items'][0]['prov'][0]['page_no'])
+            if page_no >= page_start and page_no<=page_end and\
+               label in ['text', 'caption'] and chunk_headings not in ['References','REFERENCES']:
                 eff_chunks.append({'dense_embedding':dense_embedding, 
                                    'sparse_vector': sparse_vector,
                                    'chunk_id': chunk_id,
                                    'text': fixed_text,
-                                   'page_no': chunk_meta['doc_items'][0]['prov'][0]['page_no'],
+                                   'page_no': str(page_no),
                                    'filename': filename,
                                    'headings': chunk_headings,
                                    })
@@ -264,7 +295,7 @@ class QdrantIndexing:
             end     = 1
             current_heading = chunk['headings']
             i=1
-            while True:
+            while False:
                 if chunk_index-i >=0:
                     if eff_chunks[chunk_index-i]['headings'] == current_heading:
                         start -= 1
@@ -274,7 +305,7 @@ class QdrantIndexing:
                 else:
                     break
             i=1
-            while True:
+            while False:
                 if chunk_index+i < len(eff_chunks):
                     if eff_chunks[chunk_index+i]['headings'] == current_heading:
                         end += 1
@@ -287,13 +318,15 @@ class QdrantIndexing:
             #    start = 0
             #elif chunk_index==len(eff_chunks)-1:
             #    end   = 0
-            print(f"[{chunk_index}] {start}->{end}")
+            #print(f"[{chunk_index}] {start}->{end}")
 
-            for i in range(start, end, 1):
+            #for i in range(start, end, 1):
                 #print(f"1:{current_heading}")
                 #print(f"2:{eff_chunks[chunk_index+i]['headings']}")
                 #if eff_chunks[chunk_index+i]['headings'] == current_heading:
-                context += f"[{i}]{eff_chunks[chunk_index+i]['text']}\n\n"
+            #    context += f"[{i}]{eff_chunks[chunk_index+i]['text']}\n\n"
+            context = chunk['text']
+
             #print(context)        
             self.qdrant_client.upsert(
                 collection_name=self.collection_name,
@@ -330,15 +363,20 @@ if __name__ == '__main__':
     
     parser.add_argument('file', help='Input PDF File')
     parser.add_argument('-c', '--collection', help='Qdrant\'s collection name')
-    parser.add_argument('-r', '--recreate', action='store_true', help='Recrate Qdrant\'s collection')  
+    parser.add_argument('-r', '--recreate', action='store_true', help='Recrate Qdrant\'s collection') 
+    parser.add_argument('-ps', '--page_start', help='Start page')
+    parser.add_argument('-pe', '--page_end', help='End page')
+    parser.add_argument('-mt', '--max_tokens', help='Max token')  
     args = parser.parse_args() 
 
     pdf_file_path = args.file
     collection_name = args.collection if args.collection is not None else "collection_bm25"
     recrate = args.recreate
     print(f"[{recrate}]")
-    
+    page_start = int(args.page_start) if args.page_start is not None else 0
+    page_end   = int(args.page_end) if args.page_end is not None else ((1<<31)-1)
+    max_tokens  = int(args.max_tokens) if args.max_tokens is not None else MAX_TOKENS
     indexing = QdrantIndexing(pdf_path=pdf_file_path, collection_name=collection_name)
     indexing.read_pdf()
     indexing.client_collection(recreate=recrate)
-    indexing.document_insertion()
+    indexing.document_insertion(page_start, page_end, max_tokens)
